@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Read only Console metadata. This label is distinct from lifecycle/Keep and work.
+type andrix_native_accounts_service, service_manager_type, system_server_service;
+add_service(system_server, andrix_native_accounts_service)
+# The dedicated signer and package seapp mapping selects andrix_terminal. The Binder
+# endpoint still authenticates the actual UID, exact package and factory signer.
+# Console's find/call rule lives in owner/sepolicy/andrix_terminal.te.
+neverallow { appdomain -andrix_terminal } andrix_native_accounts_service:service_manager find;
+neverallow { andrixd andrix_owner } andrix_native_accounts_service:service_manager find;

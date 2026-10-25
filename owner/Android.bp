@@ -414,5 +414,5 @@ android_app {
     // install an update-only v4 sidecar beside it: per-file fs-verity is not set
     // up there. Prepare APK+v4 pairs separately for normal PackageInstaller updates.
     v4_signature: false,
-    static_libs: ["andrix_session-java", "AndrixTerminalLibraries"],
+    static_libs: ["andrix_session-java", "andrix_platform_lifecycle-java", "AndrixTerminalLibraries"],
 }

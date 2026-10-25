@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.termux.terminal.KeyHandler;
@@ -28,11 +29,14 @@ import com.termux.view.TerminalViewClient;
 
 /** Native Android VT view. Process/session authority remains in andrixd. */
 public final class ConsoleActivity extends Activity implements TerminalController.Listener, TerminalViewClient {
+    private static final String STATE_ACCOUNT_MODE = "dev.andrix.terminal.accountMode";
     private TerminalController controller;
     private TerminalView terminal;
     private TextView state;
     private Button end, controlKey;
-    private boolean resumed, focused, control;
+    private LinearLayout actions, keys, accountPanel;
+    private NativeAccountController accounts;
+    private boolean resumed, focused, control, accountMode;
     private final Handler accessibilityEvents = new Handler(Looper.getMainLooper());
     private boolean accessibilityUpdatePending;
     private final Runnable accessibilityUpdate = () -> {
@@ -44,6 +48,13 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         controller = TerminalController.get(getApplicationContext());
+        // The separate launcher entry starts on Accounts, without foregrounding work.
+        boolean accountsEntry = getIntent().getComponent() != null
+                && "dev.andrix.terminal.NativeAccounts".equals(getIntent().getComponent().getClassName());
+        // A rotated Accounts view must not foreground the terminal work controller merely
+        // because its original launch intent named Console. Persist only the view selection.
+        accountMode = savedInstanceState == null ? accountsEntry
+                : savedInstanceState.getBoolean(STATE_ACCOUNT_MODE, accountsEntry);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setBackgroundColor(Color.BLACK);
@@ -59,7 +70,7 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         state.setTextSize(12);
         state.setMinLines(2); state.setMaxLines(2);
         layout.addView(state);
-        LinearLayout actions = new LinearLayout(this);
+        actions = new LinearLayout(this);
         add(actions, "Attach", controller::attach);
         add(actions, "Detach", controller::detach);
         if (ConsoleFeatures.KEEP) {
@@ -67,6 +78,7 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
             kept.setContentDescription("Start a new kept tmux terminal; plain sessions cannot be adopted");
         }
         end = add(actions, "End", controller::endSession);
+        add(actions, "Accounts", this::showAccounts);
         layout.addView(actions);
         terminal = new TerminalView(this, null);
         terminal.setTerminalViewClient(this);
@@ -95,7 +107,7 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
             }
         });
         layout.addView(terminal, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        LinearLayout keys = new LinearLayout(this);
+        keys = new LinearLayout(this);
         add(keys, "Esc", () -> key(KeyEvent.KEYCODE_ESCAPE));
         controlKey = add(keys, "Ctrl", () -> { control = !control; controlKey.setText(control ? "Ctrl•" : "Ctrl"); });
         add(keys, "Tab", () -> key(KeyEvent.KEYCODE_TAB));
@@ -111,9 +123,52 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
             return true;
         });
         layout.addView(keys);
+        accountPanel = new LinearLayout(this);
+        accountPanel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout accountActions = new LinearLayout(this);
+        add(accountActions, "Terminal", this::showTerminal);
+        add(accountActions, "Refresh", () -> accounts.refresh());
+        accountPanel.addView(accountActions);
+        TextView accountText = new TextView(this);
+        accountText.setTextColor(Color.WHITE);
+        accountText.setTextSize(14);
+        ScrollView accountScroll = new ScrollView(this);
+        accountScroll.addView(accountText);
+        accountPanel.addView(accountScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        accountPanel.setVisibility(accountMode ? View.VISIBLE : View.GONE);
+        layout.addView(accountPanel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        accounts = new NativeAccountController(accountText);
+        if (accountMode) {
+            state.setVisibility(View.GONE); actions.setVisibility(View.GONE);
+            terminal.setVisibility(View.GONE); keys.setVisibility(View.GONE);
+        }
         setContentView(layout);
-        terminal.requestFocus();
+        if (accountMode) accounts.open(); else terminal.requestFocus();
         controller.bind(this);
+    }
+
+    private void showAccounts() {
+        accountMode = true;
+        controller.foreground(this, false, false); // Detach presentation, never stop work.
+        state.setVisibility(View.GONE);
+        actions.setVisibility(View.GONE);
+        terminal.setVisibility(View.GONE);
+        keys.setVisibility(View.GONE);
+        accountPanel.setVisibility(View.VISIBLE);
+        accounts.open(); // Only the explicit Refresh makes a read request.
+    }
+    private void showTerminal() {
+        accounts.hide();
+        accountMode = false;
+        accountPanel.setVisibility(View.GONE);
+        state.setVisibility(View.VISIBLE);
+        actions.setVisibility(View.VISIBLE);
+        terminal.setVisibility(View.VISIBLE);
+        keys.setVisibility(View.VISIBLE);
+        controller.foreground(this, resumed, focused);
+        terminal.requestFocus();
     }
 
     private Button add(LinearLayout row, String text, Runnable action) {
@@ -174,22 +229,32 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         if (!inputAllowed) { control = false; controlKey.setText("Ctrl"); }
         notifyScreenReaders();
     }
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(STATE_ACCOUNT_MODE, accountMode);
+        super.onSaveInstanceState(outState);
+    }
     @Override protected void onResume() {
-        super.onResume(); resumed = true; controller.foreground(this, true, focused);
+        super.onResume(); resumed = true;
+        if (accountMode && focused) accounts.open();
+        controller.foreground(this, !accountMode, focused);
     }
     @Override protected void onPause() {
         resumed = false; controller.foreground(this, false, focused);
+        if (accountMode) accounts.hide();
         cancelAccessibilityUpdate();
         terminal.setTerminalCursorBlinkerState(false, false);
         super.onPause();
     }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus); focused = hasFocus;
-        if (controller != null) controller.foreground(this, resumed, hasFocus);
+        if (controller != null) controller.foreground(this, resumed && !accountMode, hasFocus);
+        if (accountMode && accounts != null) {
+            if (hasFocus && resumed) accounts.open(); else accounts.hide();
+        }
         if (!hasFocus) cancelAccessibilityUpdate();
     }
     @Override protected void onDestroy() {
-        controller.unbind(this); cancelAccessibilityUpdate(); super.onDestroy();
+        accounts.close(); controller.unbind(this); cancelAccessibilityUpdate(); super.onDestroy();
     }
 
     @Override public float onScale(float scale) { return 1; } // fixed, bounded initial cell size

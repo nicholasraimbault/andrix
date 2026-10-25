@@ -2,7 +2,7 @@
   "version": 1,
   "project": "frameworks/base",
   "head": "aab06a8bd44c4c2b58eeec780fde83baa9d43a40",
-  "patch_sha256": "1e3ace92192d5bca7e1cfd1b58fb863ba829d55a91dc84c8d401b3d2a0704531",
+  "patch_sha256": "44d4d5cb53681bd6c917f43efac2a7b2dcecd4eabcc7b4fd8876864fbeb5f03f",
   "files": [
     {
       "path": "services/core/java/com/android/server/pm/AppIdSettingMap.java",
@@ -12,7 +12,7 @@
     {
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "upstream_sha256": "bff2de579d206a39be81ef0b798df8f6e845d2f28efbbcd63554ccffbddae5a1",
-      "candidate_sha256": "6c0e895d68c222436d1c34d123511875d8ede5f248c931ac843ff9ac2830c908"
+      "candidate_sha256": "eab4ec31c8bad9153065400db9935edb3de499f3ce4169bddd4e9a159625ffaa"
     },
     {
       "path": "services/core/java/com/android/server/pm/PackageManagerService.java",
@@ -64,7 +64,7 @@
     {
       "path": "services/core/java/com/android/server/pm/NativePrincipalManager.java",
       "source": "owner/platform/framework/NativePrincipalManager.java",
-      "sha256": "03663dba3cd66286bfa8454cb89a92cc324b4e620a3dea35fc6b3e0c9a21e4be"
+      "sha256": "ae83502a32f80cb33e02af85dfdc189dad3a5ef386f35190d1578a67023b8691"
     },
     {
       "path": "services/core/java/com/android/server/pm/NativeIdentityRecords.java",
@@ -87,7 +87,7 @@
       "sha256": "24736c91ebba8587f7db450fefbd834e84c8992837743aaa14d779c3853c9b59"
     }
   ],
-  "scope": "Internal PMS native-principal reservation component, not a public designation/launch API or runtime qualification",
+  "scope": "Internal PMS native-principal reservation and cached read projection, not designation, launch or runtime qualification",
   "user_scope": "initial user0 only; UserManager reuse barrier required before other users",
   "activation_fences": [
     "owner account designation/factory not connected",
@@ -214,6 +214,12 @@
       "path": "services/core/java/com/android/server/pm/Settings.java",
       "source": "owner/tests/platform/native_recovery_fragments/diagnostic-dump.java.inc",
       "sha256": "17a8d470177321e79918c057a96fe6084cc9041ad124db334abda1417bd50f03"
+    },
+    {
+      "name": "inspection",
+      "path": "services/core/java/com/android/server/pm/Settings.java",
+      "source": "owner/tests/platform/native_recovery_fragments/inspection.java.inc",
+      "sha256": "72c8964389b94a19e5bd67f25241f89ccbafedb323d8bb12fb797c4da39f8eb4"
     }
   ]
 }

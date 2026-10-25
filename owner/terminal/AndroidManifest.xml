@@ -16,5 +16,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Direct entry for read only inspection. Unlike the terminal launcher, it does
+             not foreground the work controller before the owner opens Accounts. -->
+        <activity-alias android:name=".NativeAccounts" android:targetActivity=".ConsoleActivity"
+            android:label="Native Accounts" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

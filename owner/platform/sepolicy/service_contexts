@@ -1,2 +1,3 @@
 # SPDX-License-Identifier: Apache-2.0
 andrix.owner.lifecycle    u:object_r:andrix_lifecycle_service:s0
+andrix.owner.accounts     u:object_r:andrix_native_accounts_service:s0

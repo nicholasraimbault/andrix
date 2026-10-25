@@ -15,7 +15,10 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.List;
+import java.util.ArrayList;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -97,6 +100,171 @@ public final class NativePrincipalManager {
             this.record = record;
             this.lineage = lineage;
         }
+    }
+
+    /** A bounded, immutable projection of cached identity metadata, never login authority. */
+    public static final class Inspection {
+        public enum Status { AVAILABLE, UNAVAILABLE, UNSUPPORTED }
+        public enum Store { READY, MISSING, DAMAGED, CONFLICT, UNSUPPORTED, UNAVAILABLE }
+        public static final int MAX_ROWS = 64;
+        public final int userId;
+        public final long userSerial;
+        public final Status status;
+        public final Store store;
+        public final boolean complete;
+        public final List<Row> rows;
+
+        private Inspection(int userId, long userSerial, Status status, Store store,
+                boolean complete, List<Row> rows) {
+            this.userId = userId;
+            this.userSerial = userSerial;
+            this.status = status;
+            this.store = store;
+            this.complete = complete;
+            this.rows = List.copyOf(rows);
+            if (this.rows.size() > MAX_ROWS) throw new IllegalArgumentException("Inspection capacity");
+        }
+
+        public static Inspection unsupported(int userId, long serial) {
+            return new Inspection(userId, serial, Status.UNSUPPORTED, Store.UNAVAILABLE,
+                    false, List.of());
+        }
+
+        public static Inspection unavailable(int userId, long serial) {
+            return unavailable(userId, serial, Store.UNAVAILABLE, false);
+        }
+
+        private static Inspection unavailable(int userId, long serial, Store store, boolean complete) {
+            return new Inspection(userId, serial, Status.UNAVAILABLE, store, complete, List.of());
+        }
+    }
+
+    public static final class Row {
+        public final long principalId;
+        public final int appId;
+        public final String packageName;
+        public final String lineage;
+        public final String source, phase, lifecycle, suspension;
+
+        private Row(NativeIdentityStore.History history, String phase) {
+            principalId = history.id;
+            appId = history.appId;
+            packageName = history.packageName;
+            lineage = history.lineage; // Stored lineage, never reconstructed from today's APK.
+            source = history.source.name();
+            this.phase = phase;
+            // historiesOf supplies a synthetic eligible lifecycle for a missing body's header
+            // reservation so restoration can keep the identity. The header records neither a
+            // lifecycle nor suspension. Only a BODY is evidence for those two row fields.
+            if (history.source == NativeIdentityStore.Source.RESERVATION) {
+                lifecycle = "NOT_OBSERVED";
+                suspension = "NOT_OBSERVED";
+            } else if (history.source == NativeIdentityStore.Source.BODY) {
+                lifecycle = history.state.name();
+                suspension = history.suspensions.isEmpty() ? "NONE" : "PRESENT";
+            } else {
+                throw new IllegalStateException("Unknown account history source");
+            }
+        }
+    }
+
+    /** Called only by authenticated system_server code. No caller selected target IDs. */
+    public Inspection inspectUser(int userId, long userSerial) {
+        synchronized (pm.mLock) {
+            if (userSerial != authoritativeSerial(userId)) {
+                throw new IllegalStateException("Android user incarnation changed");
+            }
+            if (userId != UserHandle.USER_SYSTEM) {
+                return Inspection.unsupported(userId, userSerial);
+            }
+            Inspection result = pm.mSettings.nativeAccountInspectionLPr(userId, userSerial);
+            if (userSerial != authoritativeSerial(userId)) {
+                throw new IllegalStateException("Android user incarnation changed");
+            }
+            return result;
+        }
+    }
+
+    /** Pure over Settings' one cached store view and existing pins, under the PMS lock. */
+    static Inspection project(int userId, long serial, NativeIdentityStore.Loaded loaded,
+            NativePrincipalPins pins, Set<Integer> lifetimeHolds,
+            Map<Long, NativeIdentityStore.History> firstHistories) {
+        if (userId != UserHandle.USER_SYSTEM) return Inspection.unsupported(userId, serial);
+        if (loaded == null || pins == null) return Inspection.unavailable(userId, serial);
+        Inspection.Store store;
+        if (loaded.header.status == NativeIdentityStore.Status.UNSUPPORTED
+                || loaded.unsupportedFootprint) store = Inspection.Store.UNSUPPORTED;
+        else if (loaded.header.unavailable || loaded.unavailableFootprint
+                || !loaded.enumerationComplete) store = Inspection.Store.UNAVAILABLE;
+        else if (loaded.header.status == NativeIdentityStore.Status.MISSING) store = Inspection.Store.MISSING;
+        else if (loaded.header.status == NativeIdentityStore.Status.CONFLICT) store = Inspection.Store.CONFLICT;
+        else if (loaded.header.status != NativeIdentityStore.Status.VALID) store = Inspection.Store.DAMAGED;
+        else store = Inspection.Store.READY;
+        if (store == Inspection.Store.READY) {
+            for (NativeIdentityStore.ReadResult<NativeIdentityRecords.Slot> slot : loaded.slots.values()) {
+                if (slot.status == NativeIdentityStore.Status.UNSUPPORTED) {
+                    store = Inspection.Store.UNSUPPORTED; break;
+                }
+                if (slot.unavailable) { store = Inspection.Store.UNAVAILABLE; break; }
+                if (slot.status == NativeIdentityStore.Status.CONFLICT) {
+                    store = Inspection.Store.CONFLICT; break;
+                }
+                if (slot.status == NativeIdentityStore.Status.DAMAGED) {
+                    store = Inspection.Store.DAMAGED; break;
+                }
+            }
+        }
+        if (store != Inspection.Store.READY || loaded.creationBlocked || loaded.unselectedFootprint
+                || loaded.histories().size() > Inspection.MAX_ROWS
+                || loaded.occupiedAppIds.size() != loaded.histories().size()
+                || !loaded.histories().keySet().containsAll(lifetimeHolds)
+                || !loaded.histories().keySet().containsAll(pins.reservedAppIds())) {
+            return Inspection.unavailable(userId, serial, store == Inspection.Store.READY
+                    ? Inspection.Store.UNAVAILABLE : store, loaded.enumerationComplete);
+        }
+        List<Row> rows = new ArrayList<>();
+        for (NativeIdentityStore.History history : new TreeMap<>(loaded.histories()).values()) {
+            if (history.userId != userId || history.userSerial != serial
+                    || history.packageName.length() > 255 || history.packageName.isEmpty()
+                    || history.lineage.length() != 32
+                    || !loaded.occupiedAppIds.contains(history.appId)) {
+                return Inspection.unavailable(userId, serial, Inspection.Store.UNAVAILABLE,
+                        loaded.enumerationComplete);
+            }
+            NativePrincipalPins.Pin pin = pins.findId(history.id);
+            if (pin != null) {
+                if (!NativeIdentityPersistence.identifies(history, pin.record())) {
+                    return Inspection.unavailable(userId, serial, Inspection.Store.CONFLICT,
+                            loaded.enumerationComplete);
+                }
+                // A later cached read cannot lend an old pin's phase to a different lineage
+                // or signer set with the same numeric ID and package tuple. The issuer owns
+                // its ORIGINAL selection; a restored pin has Settings' first remembered body
+                // or reservation. Lifecycle, suspensions and BODY/RESERVATION may legitimately
+                // change, so History.equals would reject a valid continuation.
+                Object issuer = pin.issuance();
+                if (issuer instanceof Issuance owned) {
+                    if (!owned.record.equals(pin.record())
+                            || !owned.lineage.equals(history.lineage)
+                            || !owned.selection.currentSignerSha256.equals(history.signerSha256)) {
+                        return Inspection.unavailable(userId, serial, Inspection.Store.CONFLICT,
+                                loaded.enumerationComplete);
+                    }
+                } else {
+                    NativeIdentityStore.History first = firstHistories.get(history.id);
+                    if (issuer != null || first == null
+                            || !NativeIdentityPersistence.identifies(first, pin.record())
+                            || !first.lineage.equals(history.lineage)
+                            || !first.signerSha256.equals(history.signerSha256)) {
+                        return Inspection.unavailable(userId, serial, Inspection.Store.CONFLICT,
+                                loaded.enumerationComplete);
+                    }
+                }
+            }
+            rows.add(new Row(history, pin == null ? "NOT_PINNED" : pin.phase().name()));
+        }
+        return new Inspection(userId, serial, Inspection.Status.AVAILABLE,
+                Inspection.Store.READY, true, rows);
     }
 
     private final PackageManagerService pm;
@@ -745,6 +913,10 @@ public final class NativePrincipalManager {
         if (userId != UserHandle.USER_SYSTEM) {
             throw new IllegalArgumentException("Native principal user is not supported yet");
         }
+        return authoritativeSerial(userId);
+    }
+
+    private static long authoritativeSerial(int userId) {
         UserManagerInternal users = LocalServices.getService(UserManagerInternal.class);
         UserInfo info = users == null ? null : users.getUserInfo(userId);
         if (info == null || info.partial || info.serialNumber < 0) {

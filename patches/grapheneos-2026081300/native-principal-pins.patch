@@ -109,7 +109,7 @@
  import android.os.FileUtils;
  import android.os.Handler;
  import android.os.Message;
-@@ -563,6 +564,505 @@
+@@ -563,6 +564,511 @@
      final WatchedArrayMap<String, SharedUserSetting> mSharedUsers = new WatchedArrayMap<>();
      @Watched(manual = true)
      private final AppIdSettingMap mAppIds;
@@ -301,6 +301,12 @@
 +            throw new IllegalStateException("Native reservations require live Settings");
 +        }
 +        return mNativePrincipalPins;
++    }
++
++    /** Only metadata from this live Settings instance, never a store operation or authority. */
++    NativePrincipalManager.Inspection nativeAccountInspectionLPr(int userId, long serial) {
++        return NativePrincipalManager.project(userId, serial, mNativeIdentityLoaded,
++                nativePrincipalPinsLPr(), mNativeStoreAppIds, mNativeRememberedBindings);
 +    }
 +
 +    NativeIdentityPersistence nativeIdentityPersistenceLPr() {
@@ -615,7 +621,7 @@
  
      @Watched(manual = true)
      private final PccIdSettingMap mPccIds;
-@@ -828,6 +1328,7 @@
+@@ -828,6 +1334,7 @@
  
          mSharedUsers.snapshot(r.mSharedUsers);
          mAppIds = r.mAppIds.snapshot();
@@ -623,7 +629,7 @@
          mPccIds = r.mPccIds.snapshot();
  
          mRenamedPackages.snapshot(r.mRenamedPackages);
-@@ -1396,14 +1897,32 @@
+@@ -1396,14 +1903,32 @@
      boolean registerAppIdLPw(PackageSetting p, boolean forceNew) throws PackageManagerException {
          final boolean createdNew;
          if (p.getAppId() == 0 || forceNew) {

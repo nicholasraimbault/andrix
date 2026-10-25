@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class OwnerLifecycleService extends SystemService {
     private static final String TAG = "AndrixOwnerLifecycle";
     private static final String SERVICE = "andrix.owner.lifecycle";
+    private static final String ACCOUNTS_SERVICE = "andrix.owner.accounts";
     private static final int OWNER_UID = 7500;
     private final OwnerLifecycleState state = new OwnerLifecycleState();
     private final long instance;
@@ -150,6 +151,12 @@ public final class OwnerLifecycleService extends SystemService {
         commands = new Handler(thread.getLooper());
         if (KeepBuild.ENABLED) notifications.initialize(keep, commands);
         publishBinderService(SERVICE, binder);
+        // Separate read service. Its failure does not alter UID7500 lifecycle/Keep publication.
+        try {
+            publishBinderService(ACCOUNTS_SERVICE, new OwnerNativeAccountQuery(getContext()));
+        } catch (RuntimeException unavailable) {
+            Slog.e(TAG, "Native accounts read service unavailable", unavailable);
+        }
         schedulePublication(); // Starts blocked, including missing dependency paths.
         try {
             StorageManagerInternal storage = LocalServices.getService(StorageManagerInternal.class);

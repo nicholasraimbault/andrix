@@ -35,7 +35,8 @@ FRAGMENTS = {name: (PREFIX + source + '.java', ROOT / 'owner/tests/platform/nati
                  ('restore-history', 'Settings'), ('stored-history', 'Settings'),
                  ('scan', 'Settings'), ('recovery-seeding', 'Settings'), ('boot-facts', 'Settings'),
                  ('retired-boot', 'Settings'), ('deferral', 'Settings'), ('observation', 'Settings'),
-                 ('release-finish', 'Settings'), ('diagnostic-dump', 'Settings'))}
+                 ('release-finish', 'Settings'), ('diagnostic-dump', 'Settings'),
+                 ('inspection', 'Settings'))}
 PROFILE = BASE.patches / 'native-principal-pins.json'
 PATCH = BASE.patches / 'native-principal-pins.patch'
 SETTINGS = PREFIX + 'Settings.java'

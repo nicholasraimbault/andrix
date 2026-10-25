@@ -80,6 +80,7 @@ owner/platform/java/dev/andrix/server/KeepNotifications.java
 owner/platform/java/dev/andrix/server/KeepWork.java
 owner/platform/java/dev/andrix/server/KeepWorkState.java
 owner/platform/java/dev/andrix/server/OwnerLifecycleService.java
+owner/platform/java/dev/andrix/server/OwnerNativeAccountQuery.java
 owner/platform/java/dev/andrix/server/OwnerLifecycleState.java
 owner/terminal/adapter/TerminalSession.java
 owner/terminal/adapter/TerminalViewportText.java
@@ -92,6 +93,7 @@ owner/terminal/protocol/OutputProtocol.java
 owner/terminal/protocol/WorkReference.java
 owner/terminal/protocol/WorkTracker.java
 owner/terminal/src/dev/andrix/terminal/ConsoleActivity.java
+owner/terminal/src/dev/andrix/terminal/NativeAccountController.java
 owner/terminal/src/dev/andrix/terminal/TerminalController.java
 supervision/init/delegated_service.cpp
 supervision/init/delegated_service.h

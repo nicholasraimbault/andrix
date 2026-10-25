@@ -13,6 +13,8 @@ binder_use(andrix_terminal)
 allow andrix_terminal app_api_service:service_manager find;
 binder_call(andrix_terminal, andrixd)
 allow andrix_terminal andrix_session_service:service_manager find;
+allow andrix_terminal andrix_native_accounts_service:service_manager find;
+binder_call(andrix_terminal, system_server)
 allow andrix_terminal andrix_console_socket:unix_stream_socket { read write getattr shutdown ioctl };
 allowxperm andrix_terminal andrix_console_socket:unix_stream_socket ioctl unpriv_unix_sock_ioctls;
 
