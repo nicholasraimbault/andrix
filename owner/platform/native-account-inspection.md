@@ -178,6 +178,35 @@ The NDK uses its Android libc++ ABI; these objects do not establish compatibilit
 with a different platform libc++ configuration or replace a Soong module build.
 The prior AIDL compiler's source and build provenance remain unconfirmed.
 
+A further bounded Java gate compiled the actual production Console Activity,
+terminal and Native Accounts controllers, protocol sources, default feature
+selection and the three generated Native Accounts Java bindings. It used the real
+Android framework, Termux and session interface header jars from an existing
+Android build, the API 37 public SDK jar and the declared AndroidX annotation
+provider, not hand written Android or AIDL facades. The framework header jar
+SHA256 was
+`490961f955830ac0f43bc8a880b511eccc93568294e796e728376feb5a3b3d17`.
+These pinned jars establish a compile API surface, not correspondence to a new
+feature image or a newly generated Soong graph.
+
+The first compile succeeded with eight warnings. Six identified the missing
+annotation provider in that invocation, and two identified deprecated Console API
+uses. A separate strict compile added the actual provider and used the reviewed
+Console API changes: `TypedValue.applyDimension` preserves the 14 SP terminal
+size with nonlinear font scaling, and the owner requested keyboard call no longer
+uses the deprecated `SHOW_IMPLICIT` flag. The strict JDK 25 invocation targeted
+Java 17 with `-Xlint:all`, `-Werror` and `-proc:none`. It compiled thirteen source
+files into 32 class files, all version 61, with zero exit and empty diagnostics.
+Its owned process was directly waited and its group retired. The first compile
+and warnings remain separate evidence.
+
+This qualifies observed Java compilation of those client sources against the
+specified real headers. It does not compile the production server endpoint,
+qualify a Soong module build or optimized final DEX, create or sign an APK, execute
+Binder calls or the Console UI, or establish policy and image correspondence.
+Font scaling, keyboard behavior, accessibility and the UI lifecycle still need
+Android runtime observations.
+
 The current product already selects optimized system server compilation and its
 downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
 introduced. Inspect the exact trace inputs and final DEX in the candidate: retain

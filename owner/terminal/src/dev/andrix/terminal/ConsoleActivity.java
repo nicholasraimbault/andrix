@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -83,7 +84,8 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
         terminal = new TerminalView(this, null);
         terminal.setTerminalViewClient(this);
         terminal.setIsTerminalViewKeyLoggingEnabled(false);
-        terminal.setTextSize(Math.round(14 * getResources().getDisplayMetrics().scaledDensity));
+        terminal.setTextSize(Math.round(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, 14, getResources().getDisplayMetrics())));
         terminal.setTypeface(Typeface.MONOSPACE);
         terminal.setFilterTouchesWhenObscured(true);
         terminal.setFocusableInTouchMode(true);
@@ -193,7 +195,7 @@ public final class ConsoleActivity extends Activity implements TerminalControlle
             ime.hideSoftInputFromWindow(terminal.getWindowToken(), 0);
         } else {
             terminal.requestFocus();
-            ime.showSoftInput(terminal, InputMethodManager.SHOW_IMPLICIT);
+            ime.showSoftInput(terminal, 0);
         }
     }
     private String viewportText() {
