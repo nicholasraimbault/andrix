@@ -132,8 +132,25 @@ generation observation, not qualification of the execution supervisor or Android
 The generated interface has the argumentless `inspectCurrentUser` transaction,
 typed snapshot return and declared row and snapshot parcel order. Generation does
 not itself enforce the endpoint's 64 row limit. No generated Java or C++ code was
-compiled or linked in this gate. Actual Binder transport, final DEX, policy, image
-correspondence and Android runtime remain unqualified.
+compiled or linked in that generation gate.
+
+A later bounded host gate compiled those same three generated Java files against
+the actual Android API 37 public SDK stubs, not hand translated Android facades.
+The SDK jar SHA256 was
+`90bf8b80697f086b6fd7cc3956b436a34e2a6cf7193f7fed1343b63625c97ef2`.
+The pinned JDK 25 compiler targeted Java 17 with `--release 17`, `-Xlint:all`,
+`-Werror` and `-proc:none`. It returned zero with empty stdout and stderr and
+produced nine class files, all class version 61. The compiler SHA256 was
+`a5f3fb28e08804fb3bc55522625e7dff9c686172aac7f7067b1d839297c73001`.
+The owned process was directly waited and its group retired. The original Java
+source bodies remained unchanged; no generated sources or class files were
+committed.
+
+This qualifies the observed compilation of the generated Java transport types
+against that SDK surface. It does not compile the production endpoint or Console,
+qualify Android module compilation, compile or link the NDK output, execute Binder
+parceling, or establish final DEX, policy, image correspondence or Android runtime.
+Those gates remain separate.
 
 The current product already selects optimized system server compilation and its
 downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
