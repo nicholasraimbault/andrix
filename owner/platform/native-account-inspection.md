@@ -207,6 +207,34 @@ Binder calls or the Console UI, or establish policy and image correspondence.
 Font scaling, keyboard behavior, accessibility and the UI lifecycle still need
 Android runtime observations.
 
+A later standalone API gate compiled the actual query endpoint, the full adapted
+Android Settings source, all six native identity helper sources and the three
+generated Java bindings. It used real services, framework, libcore and Permission
+API artifacts from an existing Android build, plus the API 37 SDK, not a mock
+Settings class or Android facades. The complete Settings source supplied the
+cached inspection method. An earlier actual compiler invocation exposed a missing
+Permission API dependency; the later invocation supplied the actual declared
+`service-permission.stubs.system_server` provider. No source check or type was
+replaced to bypass that diagnostic.
+
+The pinned JDK 25 compiler targeted Java 21 with `--release 21` and `-proc:none`.
+It returned zero and produced 80 class files at version 65 from eleven sources.
+It retained thirty unchecked warnings and a deprecation note from the Android
+Settings source; this was not a warning free gate. The owned process was directly
+waited and its group retired. A subsequent gate compiled all nine Java sources
+selected by `andrix-owner-lifecycle` with Keep and fault controls disabled. It used
+those newly compiled PMS and transport classes, the real Android API artifacts
+and the existing lifecycle interface header. That invocation returned zero with
+empty diagnostics and produced 23 class files at version 65. Its process was also
+directly waited and retired.
+
+These are observed source API compilations, including the production endpoint,
+its cached PMS implementation and the selected lifecycle Java source set. They do
+not establish a completed current Soong dependency graph, optimized server jar,
+final DEX, APK, policy or image. The existing API artifacts do not establish
+correspondence to a new candidate image. No server, Binder, store, signer or
+lifecycle operation was executed by these compile gates.
+
 The current product already selects optimized system server compilation and its
 downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
 introduced. Inspect the exact trace inputs and final DEX in the candidate: retain
