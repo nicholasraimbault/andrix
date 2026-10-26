@@ -152,6 +152,32 @@ qualify Android module compilation, compile or link the NDK output, execute Bind
 parceling, or establish final DEX, policy, image correspondence or Android runtime.
 Those gates remain separate.
 
+A subsequent bounded gate compiled the three existing generated NDK C++ files
+with the official NDK r30 package, revision `30.0.16248370`, and the selected
+Android source tree's real NDK Binder headers. The compiler SHA256 was
+`ad535f0b6fc303edba958b51636169ff0291c6e36463236c99ff8abcaa34247c`.
+It targeted `aarch64-linux-android37`, used C++17 with `-Wall`, `-Wextra` and
+`-Werror`, and explicitly selected the NDK's Bionic and Android libc++ headers.
+A forced include asserted Android, Bionic, ARM64 and API 37 during all three
+compilations. This was a target assertion, not an Android runtime observation.
+
+One compiler driver invocation with integrated frontends returned zero, with
+empty stdout and stderr, and produced three ELF64 relocatable ARM64 objects.
+The owned process was directly waited and its group retired. The compiler's
+recorded dependency files named 727 source and header inputs; their actual bytes
+matched the pinned input map, with no host system headers used as Android
+inputs. The original generated source and header bodies remained unchanged.
+The four parcelable Bn and Bp placeholder headers were not compilation inputs.
+No generated source, object or downloaded toolchain is committed.
+
+This qualifies only the observed compilation of those generated C++ transport
+bindings against that target header surface. It does not link a native library,
+compile the production endpoint or Console as Android modules, execute Binder
+parceling, or qualify DEX, APK, policy, image correspondence or Android runtime.
+The NDK uses its Android libc++ ABI; these objects do not establish compatibility
+with a different platform libc++ configuration or replace a Soong module build.
+The prior AIDL compiler's source and build provenance remain unconfirmed.
+
 The current product already selects optimized system server compilation and its
 downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
 introduced. Inspect the exact trace inputs and final DEX in the candidate: retain
