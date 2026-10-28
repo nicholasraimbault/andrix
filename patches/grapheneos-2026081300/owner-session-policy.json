@@ -2,14 +2,33 @@
   "base_release": "2026081300",
   "project": "system/sepolicy",
   "head": "87a06ed71fd67cff9f77feaa9ae3504edb5d0972",
-  "file": "private/domain.te",
-  "upstream_sha256": "b6097259d6529f010896778f4802e1556b5c70643c9eab3e793ea91c45d26934",
-  "adapted_sha256": "60625d252272b49656f9c101e0f8eefcb7c07b0c892f970c850b42eb5403db2b",
   "patch": "owner-session-policy.patch",
-  "patch_sha256": "6718bc69125c2c502fb85820f06127906d05acf29cde1d4364aec1c48b699559",
+  "patch_sha256": "da05bc496cf587b5b5d92904bae2601f07d451ed6bfb54e280f278e6cccac6fe",
   "activation": "andrix_owner_session=true via explicit GOS Cuttlefish owner opt-in",
   "public_policy_api_changed": false,
   "existing_domain_grants_changed": false,
-  "patch_format": "zero-context unified review record; apply via digest-guarded owner_policy.py",
-  "scope": "new native owner types; only owned CE-home execution; no owner cgroup writes; only coordinator exec transition"
+  "patch_format": "zero-context unified review record for four files; apply via digest-guarded owner_policy.py",
+  "scope": "private native accounts service type; owner session isolation; only the new service excluded from three broad find sets",
+  "files": [
+    {
+      "path": "private/domain.te",
+      "upstream_sha256": "b6097259d6529f010896778f4802e1556b5c70643c9eab3e793ea91c45d26934",
+      "candidate_sha256": "dcbeb4fae6c728aef7047deea8b5691a65a4d8a97f102d82da18051d637a00b1"
+    },
+    {
+      "path": "private/shell.te",
+      "upstream_sha256": "a06ae61869fe11bf6e14790b4a87d014ce2653e11436a473a7d42c3c14b19e56",
+      "candidate_sha256": "2c9a428df1cf72f43996dcc95775523b2d983708737dd200e0df37fefa4c0ba6"
+    },
+    {
+      "path": "private/system_app.te",
+      "upstream_sha256": "764b20d7d1684147b16ae487c8559f499c2851f005d658f0110cf913dda1a373",
+      "candidate_sha256": "c2462a3e48b2ddaffd89a3d9f94a44e9f73c63d9b1c48792dba510af9e6be8f0"
+    },
+    {
+      "path": "private/traceur_app.te",
+      "upstream_sha256": "38b9243de67384310a3b7635856b5b0f62b80b1265d841c8a653647faf860e89",
+      "candidate_sha256": "7d3a209322ae64e88abb93288da54ad000c32b544a46babac0368ddc1da81a8a"
+    }
+  ]
 }

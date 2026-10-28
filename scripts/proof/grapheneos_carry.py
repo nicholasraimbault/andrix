@@ -873,14 +873,21 @@ def load_patch_set(base_tag):
     profile = directory / 'owner-session-policy.json'
     value = load_json(profile)
     review = directory / value.get('patch', '')
+    try:
+        rows = policy.profile_files(value)
+    except ValueError as error:
+        raise CarryError('owner session policy profile drift: ' + str(error)) from error
     if (value.get('base_release') != base_tag or value.get('project') != policy.PROJECT
-            or value.get('head') != policy.HEAD or value.get('file') != policy.FILE
-            or value.get('upstream_sha256') != policy.BEFORE or review.parent != directory
-            or not review.is_file() or value.get('patch_sha256') != sha(review.read_bytes())):
+            or value.get('head') != policy.HEAD or value.get('patch') != 'owner-session-policy.patch'
+            or review.parent != directory
+            or not review.is_file() or value.get('patch_sha256') != sha(review.read_bytes())
+            or value.get('public_policy_api_changed') is not False
+            or value.get('existing_domain_grants_changed') is not False):
         raise CarryError('owner session policy profile drift')
     specs.append(dict(name='owner-session-policy', project=policy.PROJECT, head=policy.HEAD, profile=profile,
                       patch=review, method='policy bridge',
-                      files=[dict(path=policy.FILE, upstream=policy.BEFORE, candidate=value['adapted_sha256'])],
+                      files=[dict(path=row['path'], upstream=row['upstream_sha256'],
+                                  candidate=row['candidate_sha256']) for row in rows],
                       added=[], checks=lambda outputs, originals: []))
     for spec in specs:
         spec.setdefault('after', None)
@@ -889,30 +896,24 @@ def load_patch_set(base_tag):
     return specs
 
 
-def policy_bridge(original):
-    """owner_policy.patched's anchored replacement without its pinned digest gate."""
+def policy_bridge(originals):
+    """The four file anchored bridge, also for carry inputs at another upstream revision."""
     import owner_policy as policy
-    text = original.decode('utf-8')
-    counts = (text.count(policy.PREFIX), text.count(policy.ORIGINAL_EXEC_PREFIX),
-              text.count(policy.ORIGINAL_DATA_PREFIX), text.count('allow ' + policy.CGROUP_SUBJECT + ' cgroup'))
-    if counts != (1, 1, 1, 4):
+    counts = policy.contexts(originals)
+    try:
+        result = policy.bridge(originals)
+    except ValueError:
         return None, counts
-    text = text.replace(policy.PREFIX, policy.DECLARATIONS, 1)
-    text = text.replace(policy.ORIGINAL_EXEC_PREFIX, policy.BRIDGE_EXEC_PREFIX, 1)
-    text = text.replace(policy.ORIGINAL_DATA_PREFIX, policy.BRIDGE_DATA_PREFIX, 1)
-    text = text.replace('allow ' + policy.CGROUP_SUBJECT + ' cgroup',
-                        'allow ' + policy.CGROUP_BRIDGE_SUBJECT + ' cgroup')
-    result = text.encode()
-    if sha(original) == policy.BEFORE and result != policy.patched(original):
-        raise CarryError('policy bridge mirror differs from owner_policy.patched')
+    if all(sha(originals[path]) == policy.BEFORE[path] for path in policy.FILES) \
+            and result != policy.patched(originals):
+        raise CarryError('policy bridge differs from owner_policy.patched')
     return result, counts
 
 
-def policy_anchor_lines(original):
+def policy_anchor_lines(original, path):
     import owner_policy as policy
     text = original.decode('utf-8')
-    anchors = [policy.PREFIX, policy.ORIGINAL_EXEC_PREFIX, policy.ORIGINAL_DATA_PREFIX,
-               'allow ' + policy.CGROUP_SUBJECT + ' cgroup']
+    anchors = policy.anchors(path)
     return [text.count('\n', 0, text.index(anchor)) + 1 if anchor in text else None for anchor in anchors]
 
 
@@ -1140,19 +1141,22 @@ def apply_spec(spec, inputs, workdir):
     if spec['method'] != 'policy bridge':
         _, outcome, outputs = apply_patch(spec['patch'], inputs, workdir)
         return outcome, outputs, {}
+    import owner_policy as policy
     outcome, outputs, extra = {}, {}, {}
+    if set(inputs) != set(policy.FILES):
+        raise CarryError('policy bridge needs four exact source paths')
+    if any(data is None for data in inputs.values()):
+        return {}, None, {}
+    result, counts = policy_bridge(inputs)
+    _, _, review = apply_patch(spec['patch'], inputs, workdir)
     for path, data in inputs.items():
-        if data is None:
-            outputs[path] = None
-            continue
-        result, counts = policy_bridge(data)
-        outputs[path] = result
+        outputs[path] = result[path] if result is not None else None
         outcome[path] = {'offsets': [], 'failed': [] if result is not None else ['anchors'], 'reversed': False}
-        _, _, review = apply_patch(spec['patch'], {path: data}, workdir)
-        extra[path] = {'anchor_lines': policy_anchor_lines(data), 'anchor_counts': list(counts),
+        extra[path] = {'anchor_lines': policy_anchor_lines(data, path),
+                       'anchor_counts': list(counts[path]),
                        'review_record': 'agrees' if review is not None and result is not None
-                       and review[path] == result else 'stale'}
-    return outcome, outputs if all(v is not None for v in outputs.values()) else None, extra
+                       and review[path] == result[path] else 'stale'}
+    return outcome, outputs if result is not None else None, extra
 
 
 def carry_patch(spec, base_inputs, target_inputs, workdir):

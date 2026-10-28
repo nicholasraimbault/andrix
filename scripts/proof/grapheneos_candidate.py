@@ -39,7 +39,7 @@ POLICY_RECORD = 'owner-session-policy.json'
 POLICY_PATCH = 'owner-session-policy.patch'
 HEX64 = re.compile(r'[0-9a-f]{64}')
 # The patch tools, each run with its read only check action. The policy tool also reports the
-# digests of the tree's policy file and of the bridge it derives, which the policy record names.
+# digests of the tree's four policy files and of the bridge it derives, which the policy record names.
 PATCH_TOOLS = ('android_lifecycle', 'package_verity', 'package_installer_payload_sync',
                'native_principal_pins', 'native_identity_writer', 'owner_policy')
 POLICY_TOOL = 'owner_policy'
@@ -50,7 +50,7 @@ TIMEOUTS = {'format guard': 600, 'patch set': 300, 'source verifier': 3600, 'pat
 SUMMARY = {'format guard': ('base', 'production_patches', 'format_guard'),
            'patch set': ('base', 'patch_set', 'patches', 'policy', 'host_record'),
            'source verifier': ('verdict', 'release', 'declared_projects', 'verified_projects'),
-           'patch tool': ('state',), 'policy tool': ('state', 'upstream_sha256', 'bridge_sha256')}
+           'patch tool': ('state',), 'policy tool': ('state', 'files')}
 # Variables that would let the repository's own modules shadow the checkout's.
 DROPPED_ENVIRONMENT = ('PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONSAFEPATH')
 
@@ -102,9 +102,8 @@ def patch_set():
     """The selected base's exact patch set, read without a source tree: the names of its patches,
     the digests its policy record names and its host tested record. Its directory holds exactly the
     six patches, each beside its profile, and at most a README, all regular files. The owner
-    session policy record names the selected base, its system/sepolicy revision, the policy file,
-    the upstream digest the policy tool pins, an adapted digest and the review patch beside it by
-    its digest. The payload companion's host tested record is the base's own (host_record). The
+    session policy record names the selected base, its system/sepolicy revision, four exact policy
+    files, their pinned upstream and adapted digests, and the review patch beside it by its digest. The payload companion's host tested record is the base's own (host_record). The
     carry tool's own loader then checks that inventory, validates every other profile with its tool
     and checks the policy record again, so a patch set passes here only if the carry tool accepts
     it."""
@@ -130,12 +129,12 @@ def patch_set():
         if not isinstance(record, dict):
             raise CandidateError('the owner session policy record is not a JSON object')
         wanted = {'base_release': base.release, 'project': policy.PROJECT, 'head': policy.HEAD,
-                  'file': policy.FILE, 'upstream_sha256': policy.BEFORE, 'patch': POLICY_PATCH,
-                  'patch_sha256': sha((directory / POLICY_PATCH).read_bytes())}
+                  'patch': POLICY_PATCH, 'patch_sha256': sha((directory / POLICY_PATCH).read_bytes())}
         differing = sorted(key for key, value in wanted.items() if record.get(key) != value)
-        adapted = record.get('adapted_sha256')
-        if not isinstance(adapted, str) or HEX64.fullmatch(adapted) is None:
-            differing.append('adapted_sha256')
+        try:
+            policy.profile_files(record)
+        except ValueError:
+            differing.append('files')
         if differing:
             raise CandidateError('the owner session policy record does not name the selected base '
                                  'and its review patch: %s' % ', '.join(differing))
@@ -144,8 +143,7 @@ def patch_set():
     except carry.CarryError as error:
         raise CandidateError('the carry tool refuses the patch set: %s' % error) from error
     return {'patches': [spec['name'] for spec in specs],
-            'policy': {key: record[key] for key in ('upstream_sha256', 'adapted_sha256',
-                                                     'patch_sha256')},
+            'policy': {'files': record['files'], 'patch_sha256': record['patch_sha256']},
             'host_record': host}
 
 
@@ -292,18 +290,26 @@ def run_check(name, kind, command, tree, evidence):
 
 def policy_agreement(rows):
     """The policy record against the policy tool's reading of the candidate's tree: the upstream
-    and adapted digests it names are those of the tree's policy file and of the bridge the tool
-    derives from it. Not run unless both the patch set and the policy tool pass."""
+    and adapted digests it names are those of the tree's four policy files and the bridge the tool
+    derives from them. Not run unless both the patch set and the policy tool pass."""
     found = {row['check']: row for row in rows}
     record, tool = found['patch set'], found[POLICY_TOOL]
     row = {'check': 'policy record'}
     if record['result'] != 'PASS' or tool['result'] != 'PASS':
         row.update(result='NOT_RUN', failure='needs a passing patch set and policy tool check')
         return row
-    named, read = record['policy'], {'upstream_sha256': tool.get('upstream_sha256'),
-                                     'adapted_sha256': tool.get('bridge_sha256')}
-    differing = sorted(key for key, value in read.items() if named.get(key) != value)
-    row.update(result='FAIL' if differing else 'PASS', **read)
+    import owner_policy as policy
+    named, read = record['policy'].get('files'), tool.get('files')
+    if (not isinstance(named, list) or not isinstance(read, list)
+            or len(named) != len(policy.FILES) or len(read) != len(policy.FILES)
+            or any(not isinstance(item, dict) for item in named + read)):
+        differing = ['four files']
+    else:
+        differing = [path for path, expected, observed in zip(policy.FILES, named, read)
+                     if (expected.get('path') != path or observed.get('path') != path
+                         or expected.get('upstream_sha256') != observed.get('upstream_sha256')
+                         or expected.get('candidate_sha256') != observed.get('bridge_sha256'))]
+    row.update(result='FAIL' if differing else 'PASS', files=read)
     if differing:
         row['failure'] = 'the policy record names other digests than the tree gives: ' + \
             ', '.join(differing)

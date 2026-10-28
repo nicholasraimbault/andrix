@@ -628,39 +628,52 @@ class CarryAndRecordTests(unittest.TestCase):
                 run(**changes)
 
     def test_the_policy_record_needs_the_pinned_upstream_and_an_agreeing_review(self):
-        upstream = ('# header\n' + policy.PREFIX + 'x\n' + policy.ORIGINAL_EXEC_PREFIX + '}\n'
-                    + policy.ORIGINAL_DATA_PREFIX + '}\n' + ''.join(
-                        'allow ' + policy.CGROUP_SUBJECT + ' cgroup%d;\n' % number
-                        for number in range(4))).encode()
+        domain = ('# header\n' + policy.PREFIX + 'x\n' + policy.ORIGINAL_EXEC_PREFIX + '}\n'
+                  + policy.ORIGINAL_DATA_PREFIX + '}\n' + ''.join(
+                      'allow ' + policy.CGROUP_SUBJECT + ' cgroup%d;\n' % number
+                      for number in range(4))).encode()
+        upstream = {policy.FILES[0]: domain, **{
+            path: (policy.FIND[path.removeprefix('private/').removesuffix('.te')] +
+                   '}:service_manager find;\n').encode() for path in policy.FILES[1:]}}
         bridge, _ = carry.policy_bridge(upstream)
         review = self.directory / 'owner-session-policy.patch'
 
         def write_review(after):
-            lines = difflib.unified_diff(upstream.decode().splitlines(True),
-                                         after.decode().splitlines(True),
-                                         'a/' + policy.FILE, 'b/' + policy.FILE, n=0)
-            review.write_text(''.join(lines))
+            review.write_text(''.join(''.join(difflib.unified_diff(
+                upstream[path].decode().splitlines(True), after[path].decode().splitlines(True),
+                'a/' + path, 'b/' + path, n=0)) for path in policy.FILES))
         write_review(bridge)
         record = self.directory / 'owner-session-policy.json'
         old = carry.load_json(ROOT / PINNED_PATCHES / 'owner-session-policy.json')
+        old['files'] = [dict(path=path, upstream_sha256=sha(upstream[path]),
+                             candidate_sha256=sha(bridge[path])) for path in policy.FILES]
         record.write_text(json.dumps(dict(old, patch_sha256=sha(review.read_bytes())), indent=2)
                           + '\n')
         spec = {'name': export.POLICY, 'patch': review, 'profile': record}
-        files = {('target', SEPOLICY): {policy.FILE: ('b', upstream)}}
-        outputs = {export.POLICY: (None, {policy.FILE: bridge})}
+        files = {('target', SEPOLICY): {path: ('b', upstream[path]) for path in policy.FILES}}
+        outputs = {export.POLICY: (None, bridge)}
 
         def run():
             return export.policy_record(spec, files, outputs, SECOND, '3' * 40, self.directory)
-        with mock.patch.object(policy, 'BEFORE', sha(upstream)):
+        with mock.patch.object(policy, 'BEFORE', {path: sha(data) for path, data in upstream.items()}):
             value = run()
             self.assertEqual(list(value), list(old))
             self.assertEqual({key for key in old if value[key] != old[key]},
-                             {'base_release', 'head', 'upstream_sha256', 'adapted_sha256',
-                              'patch_sha256'})
-            self.assertEqual((value['base_release'], value['head'], value['upstream_sha256'],
-                              value['adapted_sha256'], value['patch']),
-                             (SECOND, '3' * 40, sha(upstream), sha(bridge), review.name))
-            write_review(bridge.replace(b'cgroup0', b'cgroupX'))
+                             {'base_release', 'head', 'patch_sha256'})
+            self.assertEqual((value['base_release'], value['head'], value['files'], value['patch']),
+                             (SECOND, '3' * 40, [dict(path=path, upstream_sha256=sha(upstream[path]),
+                                                      candidate_sha256=sha(bridge[path]))
+                                                  for path in policy.FILES], review.name))
+            other = dict(old, files=[dict(row) for row in old['files']],
+                         patch_sha256=sha(review.read_bytes()))
+            other['files'][1]['candidate_sha256'] = '0' * 64
+            record.write_text(json.dumps(other, indent=2) + '\n')
+            with self.assertRaisesRegex(export.ExportError, 'record names other bridge bytes'):
+                run()
+            record.write_text(json.dumps(dict(old, patch_sha256=sha(review.read_bytes())),
+                                         indent=2) + '\n')
+            write_review(dict(bridge, **{policy.FILES[0]: bridge[policy.FILES[0]].replace(
+                b'cgroup0', b'cgroupX')}))
             record.write_text(json.dumps(dict(old, patch_sha256=sha(review.read_bytes())),
                                          indent=2) + '\n')
             with self.assertRaisesRegex(export.ExportError, 'policy disagreement: the review '
@@ -671,8 +684,8 @@ class CarryAndRecordTests(unittest.TestCase):
                                               public_policy_api_changed=True), indent=2) + '\n')
             with self.assertRaisesRegex(export.ExportError, 'no longer names its review patch'):
                 run()
-        with self.assertRaisesRegex(export.ExportError, 'policy disagreement: private/domain.te '
-                                                        'at 2026100600 is not the upstream file'):
+        with self.assertRaisesRegex(export.ExportError, 'policy disagreement: one of the four files '
+                                                        'at 2026100600 is not the upstream'):
             run()
 
     def test_the_readme_states_provenance_scope_and_limits(self):
@@ -1472,11 +1485,13 @@ class HonestExportTests(FixtureCase):
             {key: policy_record[key] for key in policy_record
              if policy_record[key] != previous[key]},
             {'base_release': SECOND, 'head': sepolicy})
-        self.assertEqual((policy_record['upstream_sha256'], policy_record['adapted_sha256']),
-                         (policy.BEFORE, real[export.POLICY]['files'][0]['candidate_sha256']))
+        self.assertEqual(policy_record['files'], [
+            dict(path=path, upstream_sha256=policy.BEFORE[path],
+                 candidate_sha256=entry['candidate_sha256'])
+            for path, entry in zip(policy.FILES, real[export.POLICY]['files'])])
         readme = (candidates / 'README.md').read_text()
         self.assertIn('- `frameworks/base`: `%s`' % framework, readme)
-        self.assertIn('Of the 15 upstream files the patches change, 12 are identical', readme)
+        self.assertIn('Of the 18 upstream files the patches change, 15 are identical', readme)
         # The evidence keeps the carried rows, the inputs by object and the scratch checkout's
         # results; the fixture's sealed report holds the same rows.
         self.assertEqual(record['status'], 'EXPORTED')
@@ -1649,21 +1664,24 @@ class RefusedExportTests(FixtureCase):
                      revision=changed)
 
     def test_a_policy_disagreement_is_refused(self):
-        upstream = (self.inputs[SECOND] / SEPOLICY / policy.FILE).read_bytes()
-        variant = upstream + b'# a later upstream comment\n'
+        domain = policy.FILES[0]
+        upstream = {path: (self.inputs[SECOND] / SEPOLICY / path).read_bytes()
+                    for path in policy.FILES}
+        variant = dict(upstream, **{domain: upstream[domain] + b'# a later upstream comment\n'})
 
         def change(tree):
             project = tree / SEPOLICY
             git(project, 'checkout', '--quiet', '--detach', self.revisions[SEPOLICY][0])
-            (project / policy.FILE).write_bytes(variant)
+            (project / domain).write_bytes(variant[domain])
             git(project, 'commit', '--quiet', '--all', '--message', 'a later policy')
         tree = self.tree_copy('policy', change)
         revision = text(tree / SEPOLICY, 'rev-parse', 'HEAD')
         spec = [spec for spec in carry.load_patch_set(PINNED) if spec['name'] == export.POLICY][0]
-        base_te = (self.inputs[PINNED] / SEPOLICY / policy.FILE).read_bytes()
+        base_te = {path: (self.inputs[PINNED] / SEPOLICY / path).read_bytes()
+                   for path in policy.FILES}
         work = self.directory / 'policy-work'
         work.mkdir()
-        row, _, _ = carry.carry_patch(spec, {policy.FILE: base_te}, {policy.FILE: variant}, work)
+        row, _, _ = carry.carry_patch(spec, base_te, variant, work)
         self.assertEqual((row['class'], row['files'][0]['review_record']),
                          ('changed clean', 'agrees'))
 
@@ -1681,7 +1699,7 @@ class RefusedExportTests(FixtureCase):
         sealed = self.side('a carried later policy', edit)
         record = carry.load_json(self.root / SECOND_RECORD)
         evidence = verification(self.directory / 'policy-evidence', record)
-        self.refused('a later upstream policy', 'policy disagreement: private/domain.te at '
+        self.refused('a later upstream policy', 'policy disagreement: one of the four files at '
                      '2026100600 is not the upstream file that owner_policy.py pins',
                      revision=sealed, tree=tree, evidence=evidence)
         # With the sealed report unchanged, the later policy is not the file it carried.

@@ -224,7 +224,7 @@ class CandidateCheckTests(unittest.TestCase):
                          ('PASS', SECOND, 'PASS'))
         self.assertEqual(sorted(patches['patches']), sorted(candidate.PATCH_NAMES))
         self.assertEqual(patches['policy'], {key: policy[key] for key in (
-            'upstream_sha256', 'adapted_sha256', 'patch_sha256')})
+            'files', 'patch_sha256')})
         # It read the candidate's own host tested record. The selected base's record beside it is
         # this repository's, byte for byte.
         self.assertEqual(patches['host_record'],
@@ -344,6 +344,11 @@ class CandidateCheckTests(unittest.TestCase):
         def field(**changes):
             return changed(policy, json.dumps(dict(record, **changes), indent=2) + '\n')
 
+        def policy_file(index, **changes):
+            files = [dict(row) for row in record['files']]
+            files[index].update(changes)
+            return field(files=files)
+
         def host_field(**changes):
             return changed(host, json.dumps(dict(own, **changes), indent=2) + '\n')
 
@@ -361,12 +366,13 @@ class CandidateCheckTests(unittest.TestCase):
             ('without a README', removed('README.md'), None),
             ('the old base', field(base_release=PINNED), FIELDS + 'base_release'),
             ('the old revision', field(head=json.loads(old)['head']), FIELDS + 'head'),
-            ('another file', field(file='private/file.te'), FIELDS + 'file'),
-            ('another upstream digest', field(upstream_sha256='1' * 64),
-             FIELDS + 'upstream_sha256'),
+            ('another file', policy_file(1, path='private/file.te'), FIELDS + 'files'),
+            ('another upstream digest', policy_file(2, upstream_sha256='1' * 64),
+             FIELDS + 'files'),
             ('another review patch', field(patch='native-principal-pins.patch'), FIELDS + 'patch'),
             ('a zero patch digest', field(patch_sha256='0' * 64), FIELDS + 'patch_sha256'),
-            ('a malformed adapted digest', field(adapted_sha256='HEAD'), FIELDS + 'adapted_sha256'),
+            ('a malformed adapted digest', policy_file(3, candidate_sha256='HEAD'), FIELDS + 'files'),
+            ('a legacy single file field', field(file='private/domain.te'), FIELDS + 'files'),
             ('a record that is no object', changed(policy, '[]\n'),
              'the owner session policy record is not a JSON object'),
             ('a duplicate key', changed(policy, policy.read_text().replace(
@@ -425,17 +431,25 @@ class CandidateCheckTests(unittest.TestCase):
         self.assertEqual(patch_set()[:2], (0, 'PASS'))
 
     def test_the_policy_record_must_agree_with_the_policy_tools_reading(self):
-        named = {'upstream_sha256': 'a' * 64, 'adapted_sha256': 'b' * 64, 'patch_sha256': 'c' * 64}
+        import owner_policy as policy
+        named = {'files': [dict(path=path, upstream_sha256='a' * 64,
+                               candidate_sha256='b' * 64) for path in policy.FILES],
+                 'patch_sha256': 'c' * 64}
 
-        def rows(patch_set='PASS', tool='PASS', bridge='b' * 64):
+        def rows(patch_set='PASS', tool='PASS', changed=None):
+            reading = [dict(path=path, upstream_sha256='a' * 64,
+                            bridge_sha256='b' * 64) for path in policy.FILES]
+            if changed is not None:
+                reading[changed]['bridge_sha256'] = 'd' * 64
             return [{'check': 'patch set', 'result': patch_set, 'policy': named},
-                    {'check': 'owner_policy', 'result': tool, 'upstream_sha256': 'a' * 64,
-                     'bridge_sha256': bridge}]
+                    {'check': 'owner_policy', 'result': tool, 'files': reading}]
         self.assertEqual(candidate.policy_agreement(rows())['result'], 'PASS')
-        found = candidate.policy_agreement(rows(bridge='d' * 64))
-        self.assertEqual((found['result'], found['failure']),
-                         ('FAIL', 'the policy record names other digests than the tree gives: '
-                                  'adapted_sha256'))
+        for index, path in enumerate(policy.FILES):
+            with self.subTest(path=path):
+                found = candidate.policy_agreement(rows(changed=index))
+                self.assertEqual((found['result'], found['failure']),
+                                 ('FAIL', 'the policy record names other digests than the tree gives: '
+                                          + path))
         for failed in (rows(patch_set='FAIL'), rows(tool='FAIL'), rows(tool='NOT_RUN')):
             self.assertEqual(candidate.policy_agreement(failed)['result'], 'NOT_RUN')
 
@@ -444,7 +458,7 @@ class CandidateCheckTests(unittest.TestCase):
         record = json.loads((ROOT / PINNED_PATCHES / 'owner-session-policy.json').read_text())
         self.assertEqual(found['patches'], list(candidate.PATCH_NAMES))
         self.assertEqual(found['policy'], {key: record[key] for key in (
-            'upstream_sha256', 'adapted_sha256', 'patch_sha256')})
+            'files', 'patch_sha256')})
         self.assertEqual(found['host_record'], {'path': PINNED_HOST,
                                                 'sha256': sha((ROOT / PINNED_HOST).read_bytes())})
         self.assertEqual(candidate.patch_set_report()[1], 0)

@@ -280,7 +280,7 @@ class PatchSetTests(Offline):
             'native-principal-pins', 'owner-lifecycle', 'package-verity', 'package-installer-payload-sync',
             'native-identity-writer', 'owner-session-policy'])
         self.assertEqual({s['project'] for s in specs}, {'frameworks/base', 'system/sepolicy'})
-        self.assertEqual(sum(len(s['files']) for s in specs), 16)
+        self.assertEqual(sum(len(s['files']) for s in specs), 19)
         self.assertEqual(sum(len(s['added']) for s in specs), 8)
         self.assertEqual([s['name'] for s in specs if s['lab_only']], ['native-identity-writer'])
         self.assertEqual(specs[3]['after'], 'package-verity')
@@ -290,15 +290,20 @@ class PatchSetTests(Offline):
 
     def test_policy_bridge_mirrors_owner_policy(self):
         import owner_policy as policy
-        text = ('# header\n' + policy.PREFIX + 'x\n' + policy.ORIGINAL_EXEC_PREFIX + '}\n'
-                + policy.ORIGINAL_DATA_PREFIX + '}\n'
-                + ''.join('allow ' + policy.CGROUP_SUBJECT + ' cgroup%s;\n' % n for n in range(4))).encode()
-        result, counts = carry.policy_bridge(text)
-        with mock.patch.object(policy, 'BEFORE', sha(text)):
-            self.assertEqual(result, policy.patched(text))
-        self.assertEqual(counts, (1, 1, 1, 4))
-        self.assertEqual(carry.policy_bridge(text.replace(policy.PREFIX.encode(), b''))[0], None)
-        self.assertEqual(carry.policy_anchor_lines(text)[0], 2)
+        domain = ('# header\n' + policy.PREFIX + 'x\n' + policy.ORIGINAL_EXEC_PREFIX + '}\n'
+                  + policy.ORIGINAL_DATA_PREFIX + '}\n'
+                  + ''.join('allow ' + policy.CGROUP_SUBJECT + ' cgroup%s;\n' % n for n in range(4))).encode()
+        texts = {policy.FILES[0]: domain, **{
+            path: (policy.FIND[path.removeprefix('private/').removesuffix('.te')] +\
+                   '}:service_manager find;\n').encode() for path in policy.FILES[1:]}}
+        result, counts = carry.policy_bridge(texts)
+        with mock.patch.object(policy, 'BEFORE', {path: sha(data) for path, data in texts.items()}):
+            self.assertEqual(result, policy.patched(texts))
+        self.assertEqual(counts[policy.FILES[0]], (1, 1, 1, 4))
+        self.assertTrue(all(counts[path] == (1,) for path in policy.FILES[1:]))
+        self.assertIsNone(carry.policy_bridge(dict(texts, **{policy.FILES[0]: domain.replace(
+            policy.PREFIX.encode(), b'')}))[0])
+        self.assertEqual(carry.policy_anchor_lines(domain, policy.FILES[0])[0], 2)
 
     def test_surface_covers_every_framework_service_stub(self):
         surface = carry.load_surface()

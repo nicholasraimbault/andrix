@@ -93,6 +93,20 @@ the new API is only a license header change. Successful compilation does not
 satisfy that outstanding historical qualification. Do not rewrite B2 observations
 to make this appear previously qualified.
 
+An actual policy build after the Java and DEX gates exposed a lookup conflict.
+The platform's broad `service_manager_type` find grants for `shell`, `system_app`
+and `traceur_app` included the new service, contrary to its foreign app
+neverallow. Removing `system_server_service` would not resolve that conflict.
+The candidate fix extends the existing private `owner-session-policy` bridge to
+four pinned files. It declares this exact new service type under the existing
+owner session flag and excludes only that type from the three broad lookup sets.
+The extension retains its service registration and both neverallows, and the
+Console's explicit lookup and Binder call remain unchanged. No public policy API
+or permission for another service type is added. Unflagged source expansion
+retains the existing rules. The four file source guard and focused fixtures do
+not by themselves establish a successful policy build; that candidate validation
+remains a separate gate.
+
 The pure Python source suite checks the selected recipe and fragment, immutable
 projection, exact caller and signer predicates, typed response, UI staleness and
 Soong/policy wiring. Separately, a bounded pure unified diff check applied both the

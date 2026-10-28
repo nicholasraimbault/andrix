@@ -1,14 +1,15 @@
 --- a/private/domain.te
 +++ b/private/domain.te
-@@ -1,0 +2,15 @@
+@@ -1,0 +2,16 @@
 +
 +# Andrix private owner-workload integration. Empty on ordinary upstream builds;
-+# no vendor/public policy API and no existing domain changes. The opt-in product
-+# supplies andrix_owner_session=true and the matching system_ext implementation.
++# no vendor/public policy API; all preexisting service grants remain. The opt-in
++# product supplies andrix_owner_session=true and the matching system_ext implementation.
 +ifelse(andrix_owner_session, `true', `
 +type andrixd, domain, coredomain;
 +type andrix_owner, domain, coredomain;
 +type andrix_home_file, file_type, data_file_type, core_data_file_type;
++type andrix_native_accounts_service, service_manager_type, system_server_service;
 +# Native owner work is deliberately separate from the APK/appdomain model.
 +# Only its own labelled CE home is executable writable data.
 +neverallow andrix_owner { data_file_type -andrix_home_file }:file no_x_file_perms;
@@ -16,7 +17,7 @@
 +neverallow { domain -andrixd } andrix_owner:process transition;
 +neverallow domain andrix_owner:process dyntransition;
 +')
-@@ -459,5 +474,5 @@
+@@ -459,5 +475,5 @@
 -allow { domain -appdomain -rs } cgroup:dir w_dir_perms;
 -allow { domain -appdomain -rs } cgroup:file w_file_perms;
 -
@@ -27,7 +28,19 @@
 +
 +allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup_v2:dir w_dir_perms;
 +allow { domain -appdomain -rs ifelse(andrix_owner_session, `true', `-andrix_owner') } cgroup_v2:file w_file_perms;
-@@ -1961,0 +1977 @@
+@@ -1961,0 +1978 @@
 +    ifelse(andrix_owner_session, `true', `-andrix_owner')
-@@ -2042,0 +2059 @@
+@@ -2042,0 +2060 @@
 +  ifelse(andrix_owner_session, `true', `-andrix_owner')
+--- a/private/shell.te
++++ b/private/shell.te
+@@ -383,0 +384 @@
++  ifelse(andrix_owner_session, `true', `-andrix_native_accounts_service')
+--- a/private/system_app.te
++++ b/private/system_app.te
+@@ -111,0 +112 @@
++  ifelse(andrix_owner_session, `true', `-andrix_native_accounts_service')
+--- a/private/traceur_app.te
++++ b/private/traceur_app.te
+@@ -32,0 +33 @@
++  ifelse(andrix_owner_session, `true', `-andrix_native_accounts_service')

@@ -253,6 +253,12 @@ class NativeAccountInspectionSourceTests(unittest.TestCase):
         self.assertIn('andrix.owner.accounts     u:object_r:andrix_native_accounts_service:s0',
                       source('owner/platform/sepolicy/service_contexts'))
         accounts_policy = source('owner/platform/sepolicy/native_accounts.te')
+        # The platform bridge must exclude this new private label from upstream
+        # broad shell/system-app lookup sets before the extension asserts denial.
+        declaration = ('type andrix_native_accounts_service, service_manager_type, '
+                       'system_server_service;')
+        self.assertNotIn(declaration, accounts_policy)
+        self.assertIn(declaration, source('scripts/proof/owner_policy.py'))
         self.assertIn('add_service(system_server, andrix_native_accounts_service)', accounts_policy)
         self.assertIn('neverallow { appdomain -andrix_terminal }', accounts_policy)
         self.assertIn('allow andrix_terminal andrix_native_accounts_service:service_manager find',

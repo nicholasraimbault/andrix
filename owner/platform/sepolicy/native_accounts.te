@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Read only Console metadata. This label is distinct from lifecycle/Keep and work.
-type andrix_native_accounts_service, service_manager_type, system_server_service;
+# The opt-in private platform bridge declares this type and excludes it from
+# broad shell and system app lookup grants. It is not a public policy API.
 add_service(system_server, andrix_native_accounts_service)
 # The dedicated signer and package seapp mapping selects andrix_terminal. The Binder
 # endpoint still authenticates the actual UID, exact package and factory signer.

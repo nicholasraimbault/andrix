@@ -586,32 +586,37 @@ def payload_profile(spec, files, outputs, revision, verity_path, verity_digest, 
 
 def policy_record(spec, files, outputs, release, revision, workdir):
     """The target's owner session policy record: the selected base's, naming the target release,
-    its system/sepolicy revision, the actual upstream digest and the bridge's. The upstream file
-    must be the one owner_policy.py pins, and the review patch beside it must reproduce the bridge
+    its system/sepolicy revision and the four actual upstream and bridge digests. All four files
+    must be those owner_policy.py pins, and the review patch beside them must reproduce the bridge
     that grapheneos_carry.policy_bridge and owner_policy.patched both derive."""
     import owner_policy as policy
-    original = files[('target', policy.PROJECT)][policy.FILE][1]
-    bridge = outputs[POLICY][1][policy.FILE]
-    if sha(original) != policy.BEFORE:
-        raise ExportError('policy disagreement: %s at %s is not the upstream file that '
-                          'owner_policy.py pins. The bridge needs a reviewed change of that tool, '
-                          'not a new digest' % (policy.FILE, release))
-    mirror, _ = carry.policy_bridge(original)
-    _, _, reviewed = carry.apply_patch(spec['patch'], {policy.FILE: original}, workdir)
-    if (mirror != bridge or policy.patched(original) != bridge or reviewed is None
-            or reviewed[policy.FILE] != bridge):
+    originals = {path: files[('target', policy.PROJECT)][path][1] for path in policy.FILES}
+    bridges = outputs[POLICY][1]
+    if any(sha(originals[path]) != policy.BEFORE[path] for path in policy.FILES):
+        raise ExportError('policy disagreement: one of the four files at %s is not the upstream '
+                          'file that owner_policy.py pins. The bridge needs a reviewed change of '
+                          'that tool, not a new digest' % release)
+    mirror, _ = carry.policy_bridge(originals)
+    _, _, reviewed = carry.apply_patch(spec['patch'], originals, workdir)
+    if mirror != bridges or policy.patched(originals) != bridges or reviewed != bridges:
         raise ExportError('policy disagreement: the review patch does not reproduce the bridge '
                           'at ' + release)
     value = carry.load_json(spec['profile'])
-    if (value['project'] != policy.PROJECT or value['file'] != policy.FILE
-            or value['patch'] != spec['patch'].name
+    try:
+        policy.profile_files(value)
+    except ValueError as error:
+        raise ExportError('policy disagreement: the policy record no longer names four files') from error
+    pinned_rows = [dict(path=path, upstream_sha256=sha(originals[path]),
+                        candidate_sha256=sha(bridges[path])) for path in policy.FILES]
+    if value['files'] != pinned_rows:
+        raise ExportError('policy disagreement: the policy record names other bridge bytes')
+    if (value['project'] != policy.PROJECT or value['patch'] != spec['patch'].name
             or value['patch_sha256'] != sha(spec['patch'].read_bytes())
             or value['public_policy_api_changed'] is not False
             or value['existing_domain_grants_changed'] is not False):
         raise ExportError('policy disagreement: the policy record no longer names its review '
                           'patch and scope')
-    value.update(base_release=release, head=revision, upstream_sha256=sha(original),
-                 adapted_sha256=sha(bridge))
+    value.update(base_release=release, head=revision, files=pinned_rows)
     return value
 
 
@@ -648,7 +653,7 @@ apply it, and its lab admission rules are unchanged.
 ## Owner policy bridge
 
 `owner-session-policy.*` is the same digest guarded private bridge, recorded for the {target}
-revision of `system/sepolicy` above. Its upstream `private/domain.te` is the file that
+revision of `system/sepolicy` above. Its four upstream private policy files are those that
 `scripts/proof/owner_policy.py` pins, byte for byte, and the zero context review patch reproduces
 the bridge there. It adds no public policy API and changes no existing domain's grants.
 
@@ -810,7 +815,7 @@ def check_export(scratch, staged, rows, target, inputs, revision):
     if ((patch_set.get('base'), patch_set.get('patch_set'), patch_set.get('patches'))
             != (release, 'PASS', list(candidate.PATCH_NAMES))
             or patch_set.get('policy') != {key: policy[key] for key in (
-                'upstream_sha256', 'adapted_sha256', 'patch_sha256')}
+                'files', 'patch_sha256')}
             or patch_set.get('host_record') != {'path': host_path,
                                                 'sha256': sha(written[host_path])}):
         problems.append('patch set')
@@ -1606,22 +1611,26 @@ def validate(inputs):
     patches['native-identity-writer'] = derived(
         writer.PROFILE, [writer.FILE], original,
         writer.targets(original[writer.FILE], writer.profile()), [writer.ADDED])
-    original = {policy.FILE: read(policy.PROJECT, policy.FILE)}
-    bridge = {policy.FILE: policy.patched(original[policy.FILE])}
+    original = {path: read(policy.PROJECT, path) for path in policy.FILES}
+    bridge = policy.patched(original)
     profile = base.patches / candidate.POLICY_RECORD
     record, review = carry.load_json(profile), base.patches / candidate.POLICY_PATCH
     with tempfile.TemporaryDirectory(prefix='andrix-export-') as work:
         _, _, reviewed = carry.apply_patch(review, original, work)
     wanted = {'base_release': base.release, 'project': policy.PROJECT, 'head': policy.HEAD,
-              'file': policy.FILE, 'upstream_sha256': sha(original[policy.FILE]),
-              'adapted_sha256': sha(bridge[policy.FILE]), 'patch': review.name,
-              'patch_sha256': sha(review.read_bytes())}
+              'files': [dict(path=path, upstream_sha256=sha(original[path]),
+                             candidate_sha256=sha(bridge[path])) for path in policy.FILES],
+              'patch': review.name, 'patch_sha256': sha(review.read_bytes())}
     differing = sorted(key for key, value in wanted.items() if record.get(key) != value)
+    try:
+        policy.profile_files(record)
+    except ValueError:
+        differing.append('four pinned files')
     if reviewed != bridge:
         differing.append('the review patch')
     if differing:
         raise ExportError('the policy record disagrees with the bridge: ' + ', '.join(differing))
-    patches[POLICY] = derived(profile, [policy.FILE], original, bridge)
+    patches[POLICY] = derived(profile, policy.FILES, original, bridge)
     return {'patches': patches,
             'host_record': {'path': relative(host.PROFILE),
                             'sha256': sha(host.PROFILE.read_bytes()), 'states': states,
