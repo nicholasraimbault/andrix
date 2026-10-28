@@ -84,10 +84,14 @@ is no seventh patch family or second adaptation step in the selected directory;
 the existing source-only candidate checker requires exactly six families. The old
 B2 profile at its 4cb Git object, fixtures, output predictions and runtime
 observations retain their historical scope; the selected current profile changes
-for this genuine new API. Other source, license
-and historical comparison pins that still name old bytes must be reconciled explicitly
-before any Android build. Do not rewrite B2 observations to make this appear
-previously qualified.
+for this genuine new API. Pin reconciliation must distinguish those source epochs.
+The isolated builds described below checked their current staged source and selected
+patch and profile commitments. They did not complete a global reconciliation of
+historical license only pairs, carry results or B2 comparison pins. Those old
+mappings remain tied to their verified old source context, not an assertion that
+the new API is only a license header change. Successful compilation does not
+satisfy that outstanding historical qualification. Do not rewrite B2 observations
+to make this appear previously qualified.
 
 The pure Python source suite checks the selected recipe and fragment, immutable
 projection, exact caller and signer predicates, typed response, UI staleness and
@@ -235,14 +239,67 @@ final DEX, APK, policy or image. The existing API artifacts do not establish
 correspondence to a new candidate image. No server, Binder, store, signer or
 lifecycle operation was executed by these compile gates.
 
-The current product already selects optimized system server compilation and its
-downstream jar reference tracing. No broad keep rule for NativePrincipalManager is
-introduced. Inspect the exact trace inputs and final DEX in the candidate: retain
-Inspection and its read path, while dormant writers and release stay absent.
-Validate the factory package query on the built Android image. These Android
-artifact and runtime checks have not been run for this feature.
+A subsequent candidate gate completed the current Soong main graph for the
+selected services, owner lifecycle and Console roots. The normal generated
+combined Ninja entry parsed successfully. Its actual upstream command closures
+and dry runs were checked before requesting unsigned Java outputs. No generated
+Ninja file was repaired, missing dependency waived, optimization disabled or
+signer consuming APK, APEX, image or install goal requested.
 
-## Next Android artifact gate
+The normal Soong UI product configuration and Ninja stages then built the three
+combined Java implementation jars and their actual dependencies. The completed
+current graph was reused explicitly, not presented as a clean build. The invocation
+returned zero, its owned group retired, and the critical product and source input
+hashes remained unchanged. Inspection found these outputs:
+
+| Combined implementation | Bytes | Class files |
+| --- | ---: | ---: |
+| `services.impl.jar` | 34,480,394 | 13,993 |
+| `andrix-owner-lifecycle.jar` | 53,131 | 41 |
+| `AndrixTerminal.jar` | 2,000,722 | 1,138 |
+
+The services jar contains the full adapted Settings class and all six native
+identity helpers. The owner and Console jars contain the actual endpoint,
+controller and generated Binder types, not host facades. Selected feature classes
+have class version 65. The build retained 1,574 warning lines from its full
+closure. This is not a warning free result or a claim that every warning was
+attributed to a particular module.
+
+A separate bounded invocation built the actual unsigned R8 DEX jar targets for
+`services`, `andrix-owner-lifecycle` and `AndrixTerminal`. It also returned zero
+and retired its owned group, with shrinking and the selected optimization settings
+unchanged. Each of the three R8 invocations warned that API level 37 was not
+supported by that compiler and that API level 36 or earlier should be used. These
+warnings were retained, not suppressed. Completion does not establish API 37
+runtime or release toolchain qualification.
+
+The resulting `services.jar` contains three DEX files. The owner and Console jars
+each contain one. Their DEX 039 headers, checksums and encoded class and member
+definitions were inspected. The actual owner DEX's native PMS references matched
+public classes and members in the optimized services DEX, including `inspectUser`,
+its immutable inspection and row fields, enum values and unavailable or unsupported
+factories. Two enum `ordinal()` references are inherited Java API calls, not
+missing declarations on the enum itself. The kept owner service class, public
+Context constructor and `onStart` entry point were also present. This is a
+selected structural linkage check, not full ART verification or a complete runtime
+classpath check.
+
+The current product's downstream reference tracing generated keep rules from the
+actual owner combined jar against the actual services combined jar. Those rules
+cover the observed inspection boundary. No broad hand written Manager keep rule
+was added. The optimized Manager declares only its constructor,
+`authoritativeSerial`, `project`, `signerDigests` and `inspectUser`; dormant writer
+and release entry points were not newly retained to force the check to pass.
+Source review alone had not established this generated trace coverage. The actual
+trace input and optimized definitions supplied the later artifact evidence.
+
+These gates qualify observed current Java module compilation, unsigned R8 output
+and that selected retained interface. They do not establish a signed APK, final
+policy or image correspondence, factory signer origin, service startup, Binder
+execution, store behavior or lifecycle operation on Android. Validate the factory
+package query and the remaining runtime cases on a separately admitted image.
+
+## Remaining Android artifact and runtime gates
 
 Use an isolated candidate at the selected upstream revision and the exact feature
 source, without adopting it into the B2 source epoch. Bind the complete selected
@@ -283,12 +340,14 @@ outputs and their transitive scope must be bound to the candidate.
 
 Retain source and output commitments for these artifact checks:
 
-1. Generate the actual Java and NDK AIDL. Check the zero target argument query,
-   Stub and Proxy, transaction and parcel shape, DTO field order and exceptions.
-   Hand translated host interfaces do not establish generated transport behavior.
-2. Inspect final services DEX for the immutable inspection types, `inspectUser`,
-   the selected Settings method and its cached PMS read path. Inspect the owner
-   jar for the service publication, query endpoint and generated Binder Stub.
+1. Retain the actual Java and NDK AIDL generation commitments. When those inputs
+   change, recheck the zero target argument query, Stub and Proxy, transaction and
+   parcel shape, DTO field order and exceptions. Hand translated host interfaces
+   do not establish generated transport behavior.
+2. Preserve the observed optimized inspection boundary and inspect the remaining
+   Settings read path, owner service publication and Binder implementation. The
+   selected DEX definition check above is not instruction verification, a complete
+   runtime classpath check or an Android startup test.
 3. Inspect the final Console manifest, alias and DEX after shrinking for the
    Activity, controller, Proxy and DTOs. Preserve the actual downstream system
    server reference trace. Do not add a broad Manager keep rule or newly retain
