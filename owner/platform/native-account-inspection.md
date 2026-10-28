@@ -351,6 +351,63 @@ as its recorded dependencies. This qualifies the observed platform shared
 variant, not the distinct SDK variant or compatibility of the earlier standalone
 NDK objects with platform libc++. No target library was loaded or executed.
 
+## Disposable development image artifact gate
+
+A subsequent, separately authorized development image used the committed
+`8e6b6a9` source and fresh test signing material. The normal Soong UI completed
+full product configuration, Soong and Kati generation, then Ninja built
+`target-files-package` for
+`andrix_gos_cf_arm64_only_phone-cur-userdebug`. The final invocation returned
+zero and its owned process group retired. Earlier bounded compilation windows
+ended before completion; their results remain separate. Successful ordinary
+build cache entries were reused explicitly. This was not a clean whole build or
+adoption of a retained guest or model execution prefix.
+
+The declared build time signer inputs were bound to fresh lab keys. Existing
+upstream `PRESIGNED` APK and APEX artifacts retained their public signatures
+without use of their private signing keys. The result is not a uniform fresh identity image,
+a production signer commitment or a release. Source, dependency, optimization,
+SELinux, neverallow and AVB checks were not waived to complete it.
+
+The target files archive was 3,087,026,011 bytes with 5,319 entries and 18 image
+members. Its measured SHA256 was
+`07ef11742362aaa09c6aa003cd701b5ebe766d0b1c0f299020b197547f15cfff`.
+Generated artifacts and private test keys were not committed.
+
+The archive places the Console under `SYSTEM_EXT/priv-app/AndrixTerminal`, the
+owner lifecycle jar under `SYSTEM_EXT/framework`, and `dev.andrix.usr.apex` under
+`SYSTEM_EXT/apex`. Its system server classpath metadata names the lifecycle jar.
+The compiled Console manifest retains the exported `NativeAccounts` launcher
+alias targeting `ConsoleActivity`, with minimum and target SDK 37. Actual image
+JAR and APK DEX inspection again matched the 30 selected owner to native PMS
+references, including the two separately identified inherited enum calls, and
+retained the owner service constructor and `onStart` entry point. This remains a
+structural check, not ART instruction or class loader execution.
+
+The Console APK and Andrix APEX container verified under APK Signature Scheme
+v3 with the new public Console certificate. The emitted MAC permissions encode
+that same certificate. The APEX payload's public key matches its separately
+created lab payload identity, and its AVB signature and hashtree verified. The
+six signed vbmeta headers match the newly generated image verification public
+key and have zero AVB flags. Verification also checked the five expected chain
+partition descriptors, rollback locations and the chained image hashes and
+hashtrees. These are software artifact checks, not proof that a bootloader trusts
+that key or that verified boot ran in a guest.
+
+Read only EROFS decoding then compared eight selected files from the actual
+`system` and `system_ext` partition images with the corresponding target files
+archive entries. The Console, Andrix APEX, lifecycle and services jars, and four
+policy and context files matched byte for byte. The image includes the same
+compiled accounts policy and dedicated Console mapping as the selected policy
+gate, now with the fresh lab certificate. The kernel image magic and selected
+native service ELF headers identify ARM64. No target executable was run.
+
+Warnings and limits remain. In particular, the earlier R8 API 37 warning, optional
+policy coverage limit, and outstanding historical licensing, carry and export
+qualification are not closed by this build. This gate does not establish Android
+boot, service publication, Binder caller authentication, UI behavior, live
+SELinux enforcement, factory origin or a supported phone release.
+
 ## Remaining Android artifact and runtime gates
 
 Use an isolated candidate at the selected upstream revision and the exact feature
@@ -400,10 +457,10 @@ Retain source and output commitments for these artifact checks:
    Settings read path, owner service publication and Binder implementation. The
    selected DEX definition check above is not instruction verification, a complete
    runtime classpath check or an Android startup test.
-3. Inspect the final Console manifest, alias and DEX after shrinking for the
-   Activity, controller, Proxy and DTOs. Preserve the actual downstream system
-   server reference trace. Do not add a broad Manager keep rule or newly retain
-   dormant writer and release paths to make a check pass.
+3. Preserve the observed final Console manifest, alias, image DEX and downstream
+   system server reference trace. Recheck the Activity, controller, Proxy and
+   DTOs when their inputs change. Do not add a broad Manager keep rule or newly
+   retain dormant writer and release paths to make a check pass.
 4. Preserve the emitted policy, context and normal neverallow results for this
    source epoch. Check their inclusion in the actual image and exercise the
    Console and foreign client cases on Android. Compiler controls are not runtime
