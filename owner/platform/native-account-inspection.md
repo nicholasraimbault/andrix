@@ -104,8 +104,9 @@ The extension retains its service registration and both neverallows, and the
 Console's explicit lookup and Binder call remain unchanged. No public policy API
 or permission for another service type is added. Unflagged source expansion
 retains the existing rules. The four file source guard and focused fixtures do
-not by themselves establish a successful policy build; that candidate validation
-remains a separate gate.
+not by themselves establish a successful policy build. A later normal compiler
+run against a fresh committed source snapshot supplies the separate artifact
+result described below.
 
 The pure Python source suite checks the selected recipe and fragment, immutable
 projection, exact caller and signer predicates, typed response, UI staleness and
@@ -313,6 +314,43 @@ policy or image correspondence, factory signer origin, service startup, Binder
 execution, store behavior or lifecycle operation on Android. Validate the factory
 package query and the remaining runtime cases on a separately admitted image.
 
+A fresh candidate at the four file bridge source commit then built the selected
+system extension CIL, service contexts, seapp contexts and MAC permissions, along
+with `sepolicy_neverallows`, `sepolicy_test` and the platform shared variant of
+`andrix_platform_lifecycle-ndk`. The normal product configuration and Ninja
+invocation returned zero and its owned process group retired. The earlier failed
+policy result was preserved, not turned into a pass or bypassed. Unchanged build
+recipes and interface sources allowed explicit reuse of the completed graph and
+ordinary build cache; the changed policy sources were compiled normally.
+
+The emitted CIL contains the Console's exact service lookup allow and the system
+server's add and find allow. Its foreign app and native owner neverallows remain.
+In a separate copied configuration control, adding lookup allows for `shell`,
+`system_app`, `traceur_app`, `andrixd` and `andrix_owner` produced the expected
+neverallow compiler refusal for all five. This is compiler evidence, not a
+measurement of Binder or SELinux behavior on a running phone.
+
+The emitted service context names `andrix.owner.accounts`. The seapp result maps
+the privileged `dev.andrix.terminal` package and its selected seinfo to the
+`andrix_terminal` domain and data type. MAC permissions encode the newly generated
+public compile certificate selected for that candidate. That public certificate
+was the only key related policy input admitted; no signing goal was requested
+and no APK was signed. This lab certificate mapping does not establish an
+immutable factory signer or image origin.
+
+Policy diagnostics were retained. The stock policy test returned zero while
+emitting 128 messages about an absent
+`isolated_compute_allowed_property_type` attribute. Its source permits an empty
+or unused attribute and skips the corresponding property check when absent.
+The zero exit is not a claim that this optional branch or all policy behavior was
+exercised.
+
+The generated NDK transport compiled and linked as an ARM64 ELF64 shared library,
+with `libbinder_ndk.so`, platform `libc++.so`, `libc.so`, `libm.so` and `libdl.so`
+as its recorded dependencies. This qualifies the observed platform shared
+variant, not the distinct SDK variant or compatibility of the earlier standalone
+NDK objects with platform libc++. No target library was loaded or executed.
+
 ## Remaining Android artifact and runtime gates
 
 Use an isolated candidate at the selected upstream revision and the exact feature
@@ -366,10 +404,11 @@ Retain source and output commitments for these artifact checks:
    Activity, controller, Proxy and DTOs. Preserve the actual downstream system
    server reference trace. Do not add a broad Manager keep rule or newly retain
    dormant writer and release paths to make a check pass.
-4. Inspect emitted policy and contexts for the distinct accounts service, system
-   server registration, dedicated Console domain, narrow find and Binder call,
-   and foreign app and native owner denials. Preserve the home and work
-   neverallows. Find permission is not Binder caller authentication.
+4. Preserve the emitted policy, context and normal neverallow results for this
+   source epoch. Check their inclusion in the actual image and exercise the
+   Console and foreign client cases on Android. Compiler controls are not runtime
+   policy observations. Preserve the home and work neverallows. Find permission
+   is not Binder caller authentication.
 5. Bind the factory APK's actual image path, privileged metadata, package, sole
    UID and current signer set to the built image. A source path predicate or
    matching signer tokens alone does not prove that origin.
